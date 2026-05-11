@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bunx drizzle-kit *)",
+      "Bash(bun -e ' *)",
+      "Bash(node -e ' *)",
+      "Bash(bunx tsc *)",
+      "Bash(bun install *)",
+      "Bash(timeout 25 bun run dev)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3001/api/products)",
+      "Bash(curl -s -X POST http://localhost:3001/api/products -H \"Content-Type: application/json\" -d '{\"name\":\"Test\"}' -w \"\\\\nHTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -X DELETE http://localhost:3001/api/products -w \"\\\\nHTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -o /dev/null -w \"GET unauth -> HTTP %{http_code}\\\\n\" --max-time 30 http://localhost:3001/api/products)",
+      "Bash(curl -s -X POST http://localhost:3001/api/products -H \"Content-Type: application/json\" -d '{\"name\":\"Test\"}' -w \"\\\\n-> HTTP %{http_code}\\\\n\" --max-time 30)",
+      "Bash(curl -s -X DELETE \"http://localhost:3001/api/products\" -w \"\\\\n-> HTTP %{http_code}\\\\n\" --max-time 30)",
+      "Bash(curl -s -X DELETE \"http://localhost:3001/api/products?id=abc\" -w \"\\\\n-> HTTP %{http_code}\\\\n\" --max-time 30)",
+      "Bash(curl -s -o /dev/null -w \"GET /products -> %{http_code} \\(location: %{redirect_url}\\)\\\\n\" --max-time 30 http://localhost:3001/products)",
+      "Bash(curl -s -o /dev/null -w \"GET /dashboard -> %{http_code} \\(location: %{redirect_url}\\)\\\\n\" --max-time 30 http://localhost:3001/dashboard)"
+    ]
+  }
+}
