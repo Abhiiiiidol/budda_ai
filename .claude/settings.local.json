@@ -15,7 +15,15 @@
       "Bash(curl -s -X DELETE \"http://localhost:3001/api/products\" -w \"\\\\n-> HTTP %{http_code}\\\\n\" --max-time 30)",
       "Bash(curl -s -X DELETE \"http://localhost:3001/api/products?id=abc\" -w \"\\\\n-> HTTP %{http_code}\\\\n\" --max-time 30)",
       "Bash(curl -s -o /dev/null -w \"GET /products -> %{http_code} \\(location: %{redirect_url}\\)\\\\n\" --max-time 30 http://localhost:3001/products)",
-      "Bash(curl -s -o /dev/null -w \"GET /dashboard -> %{http_code} \\(location: %{redirect_url}\\)\\\\n\" --max-time 30 http://localhost:3001/dashboard)"
+      "Bash(curl -s -o /dev/null -w \"GET /dashboard -> %{http_code} \\(location: %{redirect_url}\\)\\\\n\" --max-time 30 http://localhost:3001/dashboard)",
+      "Bash(bun add *)",
+      "Bash(curl -s -X POST http://localhost:3001/api/ai/embed -H \"Content-Type: application/json\" -d '{\"text\":\"hello\"}' -w \"\\\\n-> %{http_code}\\\\n\" --max-time 20)",
+      "Bash(curl -s -X POST http://localhost:3001/api/ai/extract -H \"Content-Type: application/json\" -d '{\"base64\":\"AAA\",\"mimeType\":\"image/png\"}' -w \"\\\\n-> %{http_code}\\\\n\" --max-time 20)",
+      "Bash(curl -s \"http://localhost:3001/api/entries?product_id=00000000-0000-0000-0000-000000000000\" -w \"\\\\n-> %{http_code}\\\\n\" --max-time 20)",
+      "Bash(curl -s -X POST http://localhost:3001/api/entries -H \"Content-Type: application/json\" -d '{\"product_id\":\"00000000-0000-0000-0000-000000000000\",\"title\":\"t\"}' -w \"\\\\n-> %{http_code}\\\\n\" --max-time 20)",
+      "Bash(curl -s -o /dev/null -w \"ping -> %{http_code}\\\\n\" --max-time 10 http://localhost:3001/)",
+      "WebFetch(domain:supabase.com)",
+      "WebSearch"
     ]
   }
 }
