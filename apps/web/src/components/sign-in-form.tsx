@@ -3,6 +3,7 @@ import { Input } from "@my-better-t-app/ui/components/input";
 import { Label } from "@my-better-t-app/ui/components/label";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { toast } from "sonner";
 import z from "zod";
 
@@ -13,6 +14,21 @@ import Loader from "./loader";
 export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
   const router = useRouter();
   const { isPending } = authClient.useSession();
+  const [isGooglePending, setIsGooglePending] = useState(false);
+
+  async function signInWithGoogle() {
+    setIsGooglePending(true);
+    try {
+      await authClient.signIn.social({
+        provider: "google",
+        callbackURL: "/products",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Google sign-in failed";
+      toast.error(message);
+      setIsGooglePending(false);
+    }
+  }
 
   const form = useForm({
     defaultValues: {
@@ -27,7 +43,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
         },
         {
           onSuccess: () => {
-            router.push("/dashboard");
+            router.push("/products");
             toast.success("Sign in successful");
           },
           onError: (error) => {
@@ -51,6 +67,25 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   return (
     <div className="mx-auto w-full mt-10 max-w-md p-6">
       <h1 className="mb-6 text-center text-3xl font-bold">Welcome Back</h1>
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mb-4 w-full"
+        onClick={signInWithGoogle}
+        disabled={isGooglePending}
+      >
+        {isGooglePending ? "Redirecting…" : "Continue with Google"}
+      </Button>
+
+      <div className="relative my-4">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs">
+          <span className="bg-background px-2 text-muted-foreground">or with email</span>
+        </div>
+      </div>
 
       <form
         onSubmit={(e) => {

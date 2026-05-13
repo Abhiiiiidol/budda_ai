@@ -14,12 +14,12 @@ import {
 import { Input } from "@my-better-t-app/ui/components/input";
 import { Label } from "@my-better-t-app/ui/components/label";
 import { PlusIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { createProduct } from "@/lib/actions/products";
+
 export default function CreateProductDialog() {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -41,26 +41,20 @@ export default function CreateProductDialog() {
     }
 
     startTransition(async () => {
-      const res = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: trimmedName,
-          description: description.trim() || undefined,
-          icon: icon.trim() || undefined,
-        }),
+      const result = await createProduct({
+        name: trimmedName,
+        description: description.trim() || undefined,
+        icon: icon.trim() || undefined,
       });
 
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        toast.error(body?.error ?? "Failed to create product");
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
 
       toast.success("Product created");
       setOpen(false);
       reset();
-      router.refresh();
     });
   }
 

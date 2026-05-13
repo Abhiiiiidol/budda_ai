@@ -13,10 +13,10 @@ import {
 } from "@my-better-t-app/ui/components/dialog";
 import { TrashIcon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { deleteProduct } from "@/lib/actions/products";
 import { SOURCE_CONFIG } from "@/lib/constants/sources";
 
 export type ProductCardData = {
@@ -30,20 +30,18 @@ export type ProductCardData = {
 };
 
 export default function ProductCard({ product }: { product: ProductCardData }) {
-  const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function onDelete() {
     startTransition(async () => {
-      const res = await fetch(`/api/products?id=${product.id}`, { method: "DELETE" });
-      if (!res.ok) {
-        toast.error("Failed to delete product");
+      const result = await deleteProduct(product.id);
+      if (!result.ok) {
+        toast.error(result.error || "Failed to delete product");
         return;
       }
       toast.success(`Deleted "${product.name}"`);
       setConfirmOpen(false);
-      router.refresh();
     });
   }
 

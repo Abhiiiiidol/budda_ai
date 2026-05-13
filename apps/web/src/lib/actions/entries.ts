@@ -1,13 +1,15 @@
-import { auth } from "@my-better-t-app/auth";
+"use server";
+
 import { db } from "@my-better-t-app/db";
 import { entries, products } from "@my-better-t-app/db/schema/budda";
-import { createHash } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { embedText } from "@/lib/gemini/embed";
+
+import { getSessionUserId } from "./session";
 
 const ENTRY_TYPES = [
   "PRD",
@@ -36,50 +38,69 @@ const SOURCES = [
 ] as const;
 
 const createEntrySchema = z.object({
-  product_id: z.uuid(),
+  productId: z.uuid(),
   title: z.string().trim().min(1).max(300),
   content: z.string().max(500_000).optional(),
   context: z.string().max(5_000).optional(),
-  entry_type: z.enum(ENTRY_TYPES).default("Other"),
+  entryType: z.enum(ENTRY_TYPES).default("Other"),
   source: z.enum(SOURCES).default("Manual"),
   link: z.url().max(2_000).optional(),
-  file_path: z.string().max(1_000).optional(),
-  file_name: z.string().max(500).optional(),
-  file_type: z.string().max(200).optional(),
+  filePath: z.string().max(1_000).optional(),
+  fileName: z.string().max(500).optional(),
+  fileType: z.string().max(200).optional(),
 });
 
-export const maxDuration = 60;
+export type CreateEntryInput = z.input<typeof createEntrySchema>;
 
-async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  return session?.user?.id ?? null;
-}
+const listEntriesSchema = z.object({
+  productId: z.uuid(),
+  type: z.string().optional(),
+  source: z.string().optional(),
+});
+
+export type ListEntriesInput = z.input<typeof listEntriesSchema>;
+
+export type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+type EntryRow = {
+  id: string;
+  productId: string;
+  title: string;
+  content: string | null;
+  context: string | null;
+  entryType: string;
+  source: string;
+  link: string | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileType: string | null;
+  hasChanges: boolean | null;
+  status: string;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+};
 
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
-export async function GET(request: Request) {
-  const userId = await getUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function listEntries(
+  input: ListEntriesInput,
+): Promise<ActionResult<EntryRow[]>> {
+  const userId = await getSessionUserId();
+  if (!userId) return { ok: false, error: "Unauthorized" };
+
+  const parsed = listEntriesSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const url = new URL(request.url);
-  const productId = url.searchParams.get("product_id");
-  const typeFilter = url.searchParams.get("type");
-  const sourceFilter = url.searchParams.get("source");
-
-  if (!productId) {
-    return NextResponse.json(
-      { error: "Missing required query parameter: product_id" },
-      { status: 400 },
-    );
-  }
-
+  const { productId, type, source } = parsed.data;
   const filters = [eq(entries.productId, productId), eq(entries.userId, userId)];
-  if (typeFilter) filters.push(eq(entries.entryType, typeFilter));
-  if (sourceFilter) filters.push(eq(entries.source, sourceFilter));
+  if (type) filters.push(eq(entries.entryType, type));
+  if (source) filters.push(eq(entries.source, source));
 
   const rows = await db
     .select({
@@ -103,39 +124,30 @@ export async function GET(request: Request) {
     .where(and(...filters))
     .orderBy(desc(entries.createdAt));
 
-  return NextResponse.json({ entries: rows });
+  return { ok: true, data: rows };
 }
 
-export async function POST(request: Request) {
-  const userId = await getUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function createEntry(input: CreateEntryInput): Promise<
+  ActionResult<{
+    entry: EntryRow;
+    embedding: { ok: true } | { ok: false; error: string | null };
+  }>
+> {
+  const userId = await getSessionUserId();
+  if (!userId) return { ok: false, error: "Unauthorized" };
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const parsed = createEntrySchema.safeParse(body);
+  const parsed = createEntrySchema.safeParse(input);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid input", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
   const [product] = await db
     .select({ id: products.id })
     .from(products)
-    .where(and(eq(products.id, parsed.data.product_id), eq(products.userId, userId)))
+    .where(and(eq(products.id, parsed.data.productId), eq(products.userId, userId)))
     .limit(1);
 
-  if (!product) {
-    return NextResponse.json({ error: "Product not found" }, { status: 404 });
-  }
+  if (!product) return { ok: false, error: "Product not found" };
 
   const content = parsed.data.content?.trim() || null;
   const contentHash = content ? sha256(content) : null;
@@ -153,17 +165,17 @@ export async function POST(request: Request) {
   const [created] = await db
     .insert(entries)
     .values({
-      productId: parsed.data.product_id,
+      productId: parsed.data.productId,
       userId,
       title: parsed.data.title,
       content,
       context: parsed.data.context?.trim() || null,
-      entryType: parsed.data.entry_type,
+      entryType: parsed.data.entryType,
       source: parsed.data.source,
       link: parsed.data.link ?? null,
-      filePath: parsed.data.file_path ?? null,
-      fileName: parsed.data.file_name ?? null,
-      fileType: parsed.data.file_type ?? null,
+      filePath: parsed.data.filePath ?? null,
+      fileName: parsed.data.fileName ?? null,
+      fileType: parsed.data.fileType ?? null,
       contentHash,
       embedding,
     })
@@ -185,37 +197,32 @@ export async function POST(request: Request) {
       updatedAt: entries.updatedAt,
     });
 
-  return NextResponse.json(
-    {
+  revalidatePath(`/products/${parsed.data.productId}`);
+
+  return {
+    ok: true,
+    data: {
       entry: created,
       embedding: embedding ? { ok: true } : { ok: false, error: embeddingError },
     },
-    { status: 201 },
-  );
+  };
 }
 
-export async function DELETE(request: Request) {
-  const userId = await getUserId();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function deleteEntry(id: string): Promise<ActionResult<null>> {
+  const userId = await getSessionUserId();
+  if (!userId) return { ok: false, error: "Unauthorized" };
 
-  const id = new URL(request.url).searchParams.get("id");
-  if (!id) {
-    return NextResponse.json(
-      { error: "Missing required query parameter: id" },
-      { status: 400 },
-    );
+  if (!z.uuid().safeParse(id).success) {
+    return { ok: false, error: "Invalid entry id" };
   }
 
   const deleted = await db
     .delete(entries)
     .where(and(eq(entries.id, id), eq(entries.userId, userId)))
-    .returning({ id: entries.id });
+    .returning({ id: entries.id, productId: entries.productId });
 
-  if (deleted.length === 0) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (deleted.length === 0) return { ok: false, error: "Not found" };
 
-  return new NextResponse(null, { status: 204 });
+  revalidatePath(`/products/${deleted[0].productId}`);
+  return { ok: true, data: null };
 }

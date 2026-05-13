@@ -25,16 +25,16 @@ Budda is a web application where product managers can:
 | Language | TypeScript | 5+ | Type safety |
 | Styling | Tailwind CSS | 3+ | UI styling |
 | UI Components | shadcn/ui | latest | Pre-built accessible components |
-| Database | Supabase (PostgreSQL) | latest | Data storage, auth, file storage |
+| Database | Supabase (PostgreSQL) | latest | Data storage, file storage, vector search |
 | ORM | Drizzle ORM | latest | Type-safe database queries |
 | Vector Search | pgvector (Supabase extension) | latest | Semantic document search |
 | AI | Google Gemini API | gemini-2.0-flash | Text extraction, Q&A, embeddings |
 | Embeddings | Gemini Embedding API | text-embedding-004 | Document vectorization |
 | File Storage | Supabase Storage | latest | PDF, image, document uploads |
 | Google Drive | Google Drive API v3 | v3 | Read Drive documents |
-| Auth | Supabase Auth | latest | Google OAuth + email login |
+| Auth | Better Auth | latest | Google OAuth + email login |
 | Hosting | Vercel | latest | Deployment |
-| Package Manager | pnpm | latest | Dependencies |
+| Package Manager | Bun | latest | Dependencies |
 
 ---
 
@@ -983,4 +983,1265 @@ Every API route must handle:
 
 This document contains everything needed to build Budda from scratch. Follow the build order in Section 8 step by step (46 steps, 7 phases). Each step should be completed and tested before moving to the next.
 
-**Key architecture rule: Supabase is used for Auth and File Storage ONLY. All database reads and writes go through Drizzle ORM connecting directly to the Supabase PostgreSQL database. The only exception is the vector similarity search (match_entries), which uses Supabase RPC because pgvector operations are easier through the Supabase client.**
+**Key architecture rule: Supabase provides the PostgreSQL database, file storage, and vector search. Drizzle ORM is the primary way to read/write data (products, entries, chat messages) — connecting directly to the Supabase PostgreSQL database via DATABASE_URL. The Supabase JS Client is used for file uploads/downloads (Storage API) and for calling the vector similarity search function (match_entries RPC). Auth is handled by Better Auth, not Supabase Auth. Package manager is Bun, not pnpm.**
+
+  # Budda — Supplementary Technical Spec (Part 2)
+  
+  > **What is this file?** This is Part 2 of Budda's technical specification. Part 1 (Budda_Technical_Spec.md) contains the full feature spec, database schema, and build order. THIS file fills in the gaps — implementation details, code patterns, and corrections specific to our Better-T-Stack scaffolded project. **Read Part 1 first, then read this file.** When there's a conflict between Part 1 and this file, THIS FILE WINS.
+  
+  ---
+  
+  ## 1. Critical Corrections to Part 1
+  
+  ### 1.1 Auth: Use Better Auth, NOT Supabase Auth
+  
+  Part 1 says "Supabase Auth." **IGNORE THAT.** This project uses **Better Auth** which was set up by Better-T-Stack during scaffolding.
+  
+  Better Auth is already installed and configured in the project. Do NOT install Supabase Auth. Do NOT use `@supabase/supabase-js` for authentication.
+  
+  **What Better Auth gives us:**
+  - Email/password login
+  - Google OAuth (we'll configure this)
+  - Session management
+  - User management
+  
+  **Where Better Auth config lives:**
+  ```
+  packages/ or lib/ → look for auth.ts or better-auth config
+  ```
+  
+  **To add Google OAuth with Better Auth:**
+  
+  ```typescript
+  // In your Better Auth config file (find it in the scaffolded project)
+  import { betterAuth } from "better-auth";
+  import { drizzleAdapter } from "better-auth/adapters/drizzle";
+  import { db } from "@/lib/db";
+  
+  export const auth = betterAuth({
+    database: drizzleAdapter(db, {
+      provider: "pg",
+    }),
+    socialProviders: {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        scope: [
+          "openid",
+          "email",
+          "profile",
+          "https://www.googleapis.com/auth/drive.readonly",
+        ],
+      },
+    },
+  });
+  ```
+  
+  **Getting Google OAuth credentials (for the developer building this):**
+  1. Go to https://console.cloud.google.com
+  2. Create a new project called "Budda"
+  3. Enable these APIs: Google Drive API, Google Identity Services
+  4. Go to Credentials → Create Credentials → OAuth Client ID
+  5. Application type: Web Application
+  6. Authorized redirect URIs: `http://localhost:3000/api/auth/callback/google` (dev) and `https://yourdomain.com/api/auth/callback/google` (prod)
+  7. Copy Client ID and Client Secret into `.env`
+  
+  **Storing the Google Drive token:**
+  
+  After Google OAuth login, Better Auth gives us the OAuth tokens. We need to store the Google access token and refresh token so Budda can read the user's Drive files later.
+  
+  ```typescript
+  // After successful Google OAuth, extract and store Drive token
+  // Add this to your auth callback or session handling:
+  
+  import { db } from "@/lib/db";
+  import { profiles } from "@/lib/db/schema";
+  import { eq } from "drizzle-orm";
+  
+  async function storeGoogleDriveToken(userId: string, tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+  }) {
+    await db.update(profiles)
+      .set({
+        googleDriveToken: JSON.stringify(tokens),
+        updatedAt: new Date(),
+      })
+      .where(eq(profiles.id, userId));
+  }
+  ```
+  
+  ---
+  
+  ### 1.2 Package Manager: Bun, NOT pnpm
+  
+  Part 1 says pnpm. **IGNORE THAT.** This project uses **Bun**.
+  
+  ```bash
+  # Installing packages:
+  bun add <package-name>
+  
+  # Running dev server:
+  bun run dev
+  
+  # Running scripts:
+  bun run <script-name>
+  ```
+  
+  ---
+  
+  ### 1.3 Project Structure: Adapt to Better-T-Stack
+  
+  Part 1 defines a project structure from scratch. **DO NOT restructure the project.** Better-T-Stack already scaffolded the project. Work WITHIN the existing structure.
+  
+  **Rules:**
+  - Find where Better-T-Stack put the Drizzle config, schema, and db client — use those files
+  - Find where Better-T-Stack put the auth config — extend it, don't replace it
+  - Find the `apps/web` directory — this is your Next.js app
+  - Add new files (AI client, feed logic, ask logic) inside the existing structure
+  - If the existing structure has `packages/` for shared code, put the Drizzle schema and DB client there
+  
+  **Before writing any code, run this command and read the output:**
+  ```bash
+  find . -type f -name "*.ts" -o -name "*.tsx" | head -50
+  ```
+  This shows you the actual file structure. Adapt to it.
+  
+  ---
+  
+  ### 1.4 Supabase + Drizzle — How They Work Together
+  
+  **Supabase is our entire backend.** It provides:
+  1. **PostgreSQL Database** — where all data lives (products, entries, chat history, users)
+  2. **File Storage** — uploading PDFs, images, documents
+  3. **pgvector** — vector similarity search for Ask Budda
+  4. **Dashboard** — for managing tables, running SQL, creating storage buckets
+  
+  **Drizzle is the ORM** that connects to the Supabase PostgreSQL database. Instead of using the Supabase JS Client to read/write data (which is fine but less type-safe), we use Drizzle for all regular database queries. This gives us full TypeScript type safety, cleaner code, and better control.
+  
+  **The Supabase JS Client (@supabase/supabase-js)** is still needed for two things that Drizzle can't do well:
+  1. **File Storage** — Supabase has a dedicated storage API for uploading/downloading files
+  2. **Vector search RPC** — calling the `match_entries` Postgres function for semantic search (Drizzle doesn't have native pgvector function call support)
+  
+  **In simple terms:**
+  - Reading/writing products, entries, chat messages → **Drizzle**
+  - Uploading/downloading files → **Supabase JS Client**
+  - Semantic vector search → **Supabase JS Client (RPC)**
+  - Auth → **Better Auth** (not Supabase Auth)
+  
+  Install the Supabase client:
+  
+  ```bash
+  bun add @supabase/supabase-js
+  ```
+  
+  Create a Supabase client for Storage and vector search:
+  
+  ```typescript
+  // lib/supabase/client.ts
+  import { createClient } from "@supabase/supabase-js";
+  
+  // Used for: file storage uploads/downloads and vector search RPC
+  // NOT used for: auth or regular database queries (those go through Drizzle)
+  export const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  ```
+  
+  Server-side client (for API routes — bypasses RLS):
+  
+  ```typescript
+  // lib/supabase/server.ts
+  import { createClient } from "@supabase/supabase-js";
+  
+  // Server-side client with elevated permissions for file operations
+  export const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  ```
+  
+  ---
+  
+  ## 2. Environment Variables (Complete)
+  
+  Create a `.env` or `.env.local` file with ALL of these:
+  
+  ```env
+  # ─── Database (Drizzle connects here directly) ───
+  # Find this in Supabase → Settings → Database → Connection string → URI
+  DATABASE_URL=postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+  
+  # ─── Supabase (Storage + vector search ONLY) ───
+  NEXT_PUBLIC_SUPABASE_URL=https://[project-ref].supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...your-anon-key
+  SUPABASE_SERVICE_ROLE_KEY=eyJ...your-service-role-key
+  
+  # ─── Google Gemini AI ───
+  GEMINI_API_KEY=your-gemini-api-key
+  
+  # ─── Google OAuth + Drive ───
+  GOOGLE_CLIENT_ID=your-google-client-id
+  GOOGLE_CLIENT_SECRET=your-google-client-secret
+  
+  # ─── Better Auth ───
+  BETTER_AUTH_SECRET=generate-a-random-32-char-string-here
+  BETTER_AUTH_URL=http://localhost:3000
+  
+  # ─── App ───
+  NEXT_PUBLIC_APP_URL=http://localhost:3000
+  ```
+  
+  **How to get each value:**
+  
+  | Variable | Where to get it |
+  |----------|----------------|
+  | DATABASE_URL | Supabase → Settings → Database → Connection string → URI (use the "Transaction" pooler for serverless) |
+  | SUPABASE_URL | Supabase → Settings → API → Project URL |
+  | SUPABASE_ANON_KEY | Supabase → Settings → API → anon/public key |
+  | SUPABASE_SERVICE_ROLE_KEY | Supabase → Settings → API → service_role key (keep secret!) |
+  | GEMINI_API_KEY | https://aistudio.google.com/apikey → Create API Key |
+  | GOOGLE_CLIENT_ID | Google Cloud Console → APIs & Services → Credentials → OAuth Client ID |
+  | GOOGLE_CLIENT_SECRET | Same place as Client ID |
+  | BETTER_AUTH_SECRET | Run in terminal: `openssl rand -base64 32` or type any random 32+ character string |
+  
+  ---
+  
+  ## 3. Gemini AI — Complete Implementation
+  
+  ### 3.1 Install
+  
+  ```bash
+  bun add @google/generative-ai
+  ```
+  
+  ### 3.2 Gemini Client
+  
+  ```typescript
+  // lib/gemini/client.ts
+  import { GoogleGenerativeAI } from "@google/generative-ai";
+  
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  
+  // For text generation and Q&A
+  export const geminiFlash = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+  });
+  
+  // For embeddings (vector search)
+  export const geminiEmbedding = genAI.getGenerativeModel({
+    model: "text-embedding-004",
+  });
+  ```
+  
+  ### 3.3 Text Extraction from Files
+  
+  ```typescript
+  // lib/gemini/extract.ts
+  import { geminiFlash } from "./client";
+  
+  // Extract text from a PDF (base64 encoded)
+  export async function extractTextFromPDF(base64Data: string): Promise<string> {
+    const result = await geminiFlash.generateContent([
+      {
+        inlineData: {
+          mimeType: "application/pdf",
+          data: base64Data,
+        },
+      },
+      {
+        text: "Extract ALL the text content from this document. Return the full text as-is, preserving structure including headings, bullet points, and paragraphs. Do not summarize — return everything.",
+      },
+    ]);
+  
+    return result.response.text();
+  }
+  
+  // Extract text/description from an image
+  export async function extractTextFromImage(
+    base64Data: string,
+    mimeType: string
+  ): Promise<string> {
+    const result = await geminiFlash.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType, // e.g. "image/png", "image/jpeg"
+          data: base64Data,
+        },
+      },
+      {
+        text: "Describe this image in detail. Extract any visible text. If it's a wireframe, diagram, or flowchart, describe the structure and all elements. If it's a screenshot, describe the UI and any text shown.",
+      },
+    ]);
+  
+    return result.response.text();
+  }
+  
+  // Extract text from any supported document
+  export async function extractText(
+    base64Data: string,
+    mimeType: string
+  ): Promise<string> {
+    if (mimeType === "application/pdf") {
+      return extractTextFromPDF(base64Data);
+    }
+  
+    if (mimeType.startsWith("image/")) {
+      return extractTextFromImage(base64Data, mimeType);
+    }
+  
+    // For text-based files (txt, csv, etc.) — decode directly
+    if (
+      mimeType.includes("text/") ||
+      mimeType.includes("csv") ||
+      mimeType.includes("json")
+    ) {
+      return Buffer.from(base64Data, "base64").toString("utf-8");
+    }
+  
+    // For other documents (docx, pptx, xlsx) — send to Gemini
+    const result = await geminiFlash.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Data,
+        },
+      },
+      {
+        text: "Extract ALL the text content from this document. Return the full text preserving structure.",
+      },
+    ]);
+  
+    return result.response.text();
+  }
+  ```
+  
+  ### 3.4 Generate Embeddings
+  
+  ```typescript
+  // lib/gemini/embed.ts
+  import { GoogleGenerativeAI } from "@google/generative-ai";
+  
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  
+  export async function generateEmbedding(text: string): Promise<number[]> {
+    // Truncate to ~8000 tokens worth of text (roughly 32000 chars)
+    // Gemini embedding model has input limits
+    const truncated = text.slice(0, 32000);
+  
+    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+    const result = await model.embedContent(truncated);
+  
+    return result.embedding.values; // Returns 768-dimension float array
+  }
+  ```
+  
+  ### 3.5 Ask Budda — Q&A
+  
+  ```typescript
+  // lib/gemini/ask.ts
+  import { geminiFlash } from "./client";
+  
+  interface Entry {
+    title: string;
+    content: string | null;
+    context: string | null;
+    entryType: string;
+    source: string;
+    link: string | null;
+    date: string;
+  }
+  
+  export async function askBudda(
+    productName: string,
+    productDescription: string,
+    entries: Entry[],
+    conversationHistory: { role: "user" | "assistant"; text: string }[],
+    question: string
+  ): Promise<string> {
+    // Build context from relevant entries
+    const entriesContext = entries
+      .map(
+        (e) =>
+          `─── [${e.entryType}] ${e.title} ───
+  Source: ${e.source}
+  Date: ${e.date}
+  ${e.link ? `Original Link: ${e.link}` : ""}
+  ${e.context ? `Context: ${e.context}` : ""}
+  
+  Content:
+  ${e.content || "[No content]"}`
+      )
+      .join("\n\n═══════════\n\n");
+  
+    const systemPrompt = `You are Budda — a product memory assistant for "${productName}" (${productDescription}).
+  
+  You have access to the following documents and entries for this product:
+  
+  ${entriesContext}
+  
+  RULES — follow these strictly:
+  1. Answer ONLY from the provided documents. Never fabricate information.
+  2. If the answer is not in the documents, say: "I don't have that in my memory yet. Try feeding it to me!"
+  3. Be concise and scannable — PMs are busy. Use short paragraphs.
+  4. ALWAYS reference which document/entry you are pulling information from, by its title.
+  5. ALWAYS include original links when they exist. If an entry has a Figma link, Drive link, YouTube link, or any URL — include it in your response so the PM can access the original file.
+  6. When asked to "find a document" or "give me the doc about X" — search through entries, return the most relevant one with its full content and original link.
+  7. For change logs, clearly state what changed.
+  8. Flag when you are making an inference vs stating a fact from the documents.
+  9. Speak warmly but efficiently, like a wise assistant who knows everything about this product.`;
+  
+    // Build conversation history for Gemini
+    const history = conversationHistory.map((msg) => ({
+      role: msg.role === "user" ? ("user" as const) : ("model" as const),
+      parts: [{ text: msg.text }],
+    }));
+  
+    const chat = geminiFlash.startChat({
+      history: history,
+      systemInstruction: systemPrompt,
+    });
+  
+    const result = await chat.sendMessage(question);
+    return result.response.text();
+  }
+  ```
+  
+  ---
+  
+  ## 4. File Upload — Complete Flow
+  
+  ### 4.1 Supabase Storage Setup
+  
+  **Do this manually in the Supabase dashboard:**
+  
+  1. Go to Supabase → Storage
+  2. Create bucket: `documents` (private)
+  3. Create bucket: `images` (private)
+  4. For each bucket, add this RLS policy:
+     - Policy name: "Users can upload their own files"
+     - Operation: INSERT
+     - Policy: `(auth.uid() IS NOT NULL)` — or for simplicity during MVP, just allow all authenticated uploads
+  5. Add a SELECT policy too so users can read their own files
+  
+  **Since we're NOT using Supabase Auth, we'll use the service_role key for uploads (server-side only).** This bypasses RLS. This is fine for MVP because all file operations happen through our API routes which are already protected by Better Auth.
+  
+  ### 4.2 Upload API Route
+  
+  ```typescript
+  // app/api/entries/upload/route.ts
+  import { NextRequest, NextResponse } from "next/server";
+  import { supabaseAdmin } from "@/lib/supabase/server";
+  import { extractText } from "@/lib/gemini/extract";
+  import { generateEmbedding } from "@/lib/gemini/embed";
+  import { db } from "@/lib/db";
+  import { entries } from "@/lib/db/schema";
+  import { createHash } from "crypto";
+  
+  export async function POST(req: NextRequest) {
+    // 1. Verify user is authenticated (via Better Auth)
+    // Get the session/user from Better Auth
+    // If not authenticated, return 401
+  
+    try {
+      const formData = await req.formData();
+      const file = formData.get("file") as File;
+      const title = formData.get("title") as string;
+      const context = formData.get("context") as string;
+      const entryType = formData.get("entryType") as string;
+      const source = formData.get("source") as string;
+      const productId = formData.get("productId") as string;
+      const userId = formData.get("userId") as string; // From session
+  
+      if (!file || !title || !productId) {
+        return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      }
+  
+      // 2. Convert file to base64
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64 = buffer.toString("base64");
+  
+      // 3. Upload to Supabase Storage
+      const bucket = file.type.startsWith("image/") ? "images" : "documents";
+      const filePath = `${userId}/${productId}/${Date.now()}-${file.name}`;
+  
+      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+        .from(bucket)
+        .upload(filePath, buffer, {
+          contentType: file.type,
+          upsert: false,
+        });
+  
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        return NextResponse.json({ error: "File upload failed" }, { status: 500 });
+      }
+  
+      // 4. Extract text using Gemini
+      let extractedContent = "";
+      try {
+        extractedContent = await extractText(base64, file.type);
+      } catch (err) {
+        extractedContent = `[File uploaded: ${file.name}] — Automatic text extraction failed.`;
+      }
+  
+      // 5. Generate embedding
+      let embedding: number[] | null = null;
+      try {
+        if (extractedContent && extractedContent.length > 10) {
+          embedding = await generateEmbedding(extractedContent);
+        }
+      } catch (err) {
+        console.error("Embedding error:", err);
+        // Continue without embedding — search will still work via text
+      }
+  
+      // 6. Generate content hash (for change tracking)
+      const contentHash = createHash("md5").update(extractedContent).digest("hex");
+  
+      // 7. Save entry to database via Drizzle
+      const [newEntry] = await db.insert(entries).values({
+        productId,
+        userId,
+        title,
+        content: extractedContent,
+        context: context || null,
+        entryType: entryType || "Other",
+        source: source || "Manual",
+        filePath: uploadData.path,
+        fileName: file.name,
+        fileType: file.type,
+        contentHash,
+        embedding: embedding, // pgvector stores this as vector(768)
+      }).returning();
+  
+      return NextResponse.json({ entry: newEntry }, { status: 201 });
+    } catch (err) {
+      console.error("Upload processing error:", err);
+      return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+    }
+  }
+  ```
+  
+  ### 4.3 Link Entry (no file upload)
+  
+  ```typescript
+  // app/api/entries/route.ts
+  import { NextRequest, NextResponse } from "next/server";
+  import { generateEmbedding } from "@/lib/gemini/embed";
+  import { db } from "@/lib/db";
+  import { entries } from "@/lib/db/schema";
+  import { eq, and, desc } from "drizzle-orm";
+  import { createHash } from "crypto";
+  
+  // CREATE entry (for links, AI chats, manual text)
+  export async function POST(req: NextRequest) {
+    try {
+      const body = await req.json();
+      const { productId, userId, title, content, context, entryType, source, link } = body;
+  
+      if (!productId || !userId || !title) {
+        return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      }
+  
+      // Generate embedding if we have content
+      let embedding: number[] | null = null;
+      const textToEmbed = [title, content, context].filter(Boolean).join(" ");
+      if (textToEmbed.length > 10) {
+        try {
+          embedding = await generateEmbedding(textToEmbed);
+        } catch (err) {
+          console.error("Embedding error:", err);
+        }
+      }
+  
+      const contentHash = content
+        ? createHash("md5").update(content).digest("hex")
+        : null;
+  
+      const [newEntry] = await db.insert(entries).values({
+        productId,
+        userId,
+        title,
+        content: content || null,
+        context: context || null,
+        entryType: entryType || "Other",
+        source: source || "Manual",
+        link: link || null,
+        contentHash,
+        embedding,
+      }).returning();
+  
+      return NextResponse.json({ entry: newEntry }, { status: 201 });
+    } catch (err) {
+      console.error("Create entry error:", err);
+      return NextResponse.json({ error: "Failed to create entry" }, { status: 500 });
+    }
+  }
+  
+  // GET entries for a product
+  export async function GET(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const productId = searchParams.get("productId");
+    const entryType = searchParams.get("type");
+    const source = searchParams.get("source");
+  
+    if (!productId) {
+      return NextResponse.json({ error: "productId required" }, { status: 400 });
+    }
+  
+    let query = db.select().from(entries)
+      .where(eq(entries.productId, productId))
+      .orderBy(desc(entries.createdAt));
+  
+    const results = await query;
+  
+    // Filter in JS for simplicity (or build dynamic where clauses)
+    let filtered = results;
+    if (entryType) {
+      filtered = filtered.filter((e) => e.entryType === entryType);
+    }
+    if (source) {
+      filtered = filtered.filter((e) => e.source === source);
+    }
+  
+    return NextResponse.json({ entries: filtered });
+  }
+  
+  // DELETE entry
+  export async function DELETE(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+  
+    if (!id) {
+      return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
+  
+    await db.delete(entries).where(eq(entries.id, id));
+    return NextResponse.json({ success: true });
+  }
+  ```
+  
+  ---
+  
+  ## 5. pgvector + Drizzle — Semantic Search
+  
+  ### 5.1 Enable pgvector in Supabase
+  
+  **Do this once, manually, in Supabase SQL Editor:**
+  
+  ```sql
+  -- Enable the vector extension
+  create extension if not exists vector with schema extensions;
+  ```
+  
+  ### 5.2 Drizzle Schema — Vector Column
+  
+  Drizzle supports pgvector via the `drizzle-orm/pg-core` vector type. Make sure this import is in your schema:
+  
+  ```typescript
+  // In your Drizzle schema file
+  import { vector } from "drizzle-orm/pg-core";
+  
+  // The entries table should have:
+  embedding: vector("embedding", { dimensions: 768 }),
+  ```
+  
+  If Drizzle's built-in vector type doesn't work with your version, use a custom type:
+  
+  ```typescript
+  import { customType } from "drizzle-orm/pg-core";
+  
+  const vectorType = customType<{ data: number[]; dpiName: string }>({
+    dataType() {
+      return "vector(768)";
+    },
+    toDriver(value: number[]) {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string) {
+      return value
+        .replace("[", "")
+        .replace("]", "")
+        .split(",")
+        .map(Number);
+    },
+  });
+  ```
+  
+  ### 5.3 Create the Search Function in Supabase
+  
+  **Run this SQL in Supabase SQL Editor (one time):**
+  
+  ```sql
+  create or replace function match_entries(
+    query_embedding vector(768),
+    match_product_id uuid,
+    match_count int default 10,
+    match_threshold float default 0.3
+  )
+  returns table (
+    id uuid,
+    title text,
+    content text,
+    context text,
+    entry_type text,
+    source text,
+    link text,
+    similarity float
+  )
+  language sql stable
+  as $$
+    select
+      entries.id,
+      entries.title,
+      entries.content,
+      entries.context,
+      entries.entry_type,
+      entries.source,
+      entries.link,
+      1 - (entries.embedding <=> query_embedding) as similarity
+    from public.entries
+    where entries.product_id = match_product_id
+      and entries.embedding is not null
+      and 1 - (entries.embedding <=> query_embedding) > match_threshold
+    order by entries.embedding <=> query_embedding
+    limit match_count;
+  $$;
+  ```
+  
+  ### 5.4 Calling Semantic Search from Code
+  
+  Since Drizzle doesn't have native support for calling Supabase RPC functions, we use the Supabase client specifically for this:
+  
+  ```typescript
+  // lib/search.ts
+  import { supabaseAdmin } from "@/lib/supabase/server";
+  import { generateEmbedding } from "@/lib/gemini/embed";
+  
+  export interface SearchResult {
+    id: string;
+    title: string;
+    content: string;
+    context: string;
+    entry_type: string;
+    source: string;
+    link: string;
+    similarity: number;
+  }
+  
+  export async function semanticSearch(
+    query: string,
+    productId: string,
+    topK: number = 15
+  ): Promise<SearchResult[]> {
+    // 1. Generate embedding for the query
+    const queryEmbedding = await generateEmbedding(query);
+  
+    // 2. Call the Supabase RPC function
+    const { data, error } = await supabaseAdmin.rpc("match_entries", {
+      query_embedding: queryEmbedding,
+      match_product_id: productId,
+      match_count: topK,
+      match_threshold: 0.3,
+    });
+  
+    if (error) {
+      console.error("Semantic search error:", error);
+      // Fallback: return all entries for this product (via Drizzle)
+      return [];
+    }
+  
+    return data as SearchResult[];
+  }
+  ```
+  
+  ### 5.5 Ask Budda API Route (Putting It All Together)
+  
+  ```typescript
+  // app/api/ai/ask/route.ts
+  import { NextRequest, NextResponse } from "next/server";
+  import { semanticSearch } from "@/lib/search";
+  import { askBudda } from "@/lib/gemini/ask";
+  import { db } from "@/lib/db";
+  import { products, chatMessages } from "@/lib/db/schema";
+  import { eq } from "drizzle-orm";
+  
+  export async function POST(req: NextRequest) {
+    try {
+      const { productId, userId, question, history } = await req.json();
+  
+      if (!productId || !question) {
+        return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+      }
+  
+      // 1. Get product info
+      const [product] = await db.select().from(products)
+        .where(eq(products.id, productId));
+  
+      if (!product) {
+        return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      }
+  
+      // 2. Semantic search — find relevant entries
+      const relevantEntries = await semanticSearch(question, productId, 15);
+  
+      // 3. If semantic search returned nothing, fall back to all entries
+      let entriesToUse = relevantEntries;
+      if (entriesToUse.length === 0) {
+        // Fallback: use Drizzle to get all entries for this product
+        const { entries } = await import("@/lib/db/schema");
+        const allEntries = await db.select().from(entries)
+          .where(eq(entries.productId, productId));
+  
+        entriesToUse = allEntries.map((e) => ({
+          id: e.id,
+          title: e.title,
+          content: e.content || "",
+          context: e.context || "",
+          entry_type: e.entryType,
+          source: e.source,
+          link: e.link || "",
+          similarity: 1,
+        }));
+      }
+  
+      // 4. Format entries for Gemini
+      const formattedEntries = entriesToUse.map((e) => ({
+        title: e.title,
+        content: e.content,
+        context: e.context,
+        entryType: e.entry_type,
+        source: e.source,
+        link: e.link,
+        date: "", // Not returned by search, that's fine
+      }));
+  
+      // 5. Ask Gemini
+      const answer = await askBudda(
+        product.name,
+        product.description || "",
+        formattedEntries,
+        history || [],
+        question
+      );
+  
+      // 6. Save both messages to chat history
+      await db.insert(chatMessages).values([
+        {
+          productId,
+          userId,
+          role: "user",
+          content: question,
+        },
+        {
+          productId,
+          userId,
+          role: "assistant",
+          content: answer,
+        },
+      ]);
+  
+      return NextResponse.json({ answer });
+    } catch (err) {
+      console.error("Ask Budda error:", err);
+      return NextResponse.json(
+        { error: "Budda's thinking got interrupted. Try again." },
+        { status: 500 }
+      );
+    }
+  }
+  ```
+  
+  ---
+  
+  ## 6. Google Drive — Reading Documents
+  
+  ### 6.1 Refreshing Google OAuth Token
+  
+  When a user's access token expires, we need to refresh it:
+  
+  ```typescript
+  // lib/drive/token.ts
+  export async function refreshGoogleToken(refreshToken: string): Promise<string> {
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }),
+    });
+  
+    const data = await response.json();
+    return data.access_token;
+  }
+  ```
+  
+  ### 6.2 Reading Drive Files
+  
+  ```typescript
+  // lib/drive/client.ts
+  import { refreshGoogleToken } from "./token";
+  import { extractText } from "@/lib/gemini/extract";
+  
+  export function extractFileIdFromUrl(url: string): string | null {
+    // Matches Google Drive/Docs/Sheets/Slides file IDs
+    const patterns = [
+      /\/d\/([a-zA-Z0-9_-]{25,})/,
+      /id=([a-zA-Z0-9_-]{25,})/,
+      /\/folders\/([a-zA-Z0-9_-]{25,})/,
+    ];
+  
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match) return match[1];
+    }
+  
+    return null;
+  }
+  
+  export async function readDriveFile(
+    fileUrl: string,
+    accessToken: string,
+    refreshToken: string
+  ): Promise<{ content: string; title: string; mimeType: string }> {
+    const fileId = extractFileIdFromUrl(fileUrl);
+    if (!fileId) throw new Error("Could not extract file ID from URL");
+  
+    // Try with current token, refresh if needed
+    let token = accessToken;
+  
+    // 1. Get file metadata
+    let metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+  
+    if (metaRes.status === 401) {
+      token = await refreshGoogleToken(refreshToken);
+      metaRes = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    }
+  
+    const meta = await metaRes.json();
+  
+    // 2. Download content based on type
+    let content = "";
+  
+    if (meta.mimeType === "application/vnd.google-apps.document") {
+      // Google Doc → export as plain text
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      content = await res.text();
+    } else if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+      // Google Sheet → export as CSV
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      content = await res.text();
+    } else if (meta.mimeType === "application/vnd.google-apps.presentation") {
+      // Google Slides → export as plain text
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      content = await res.text();
+    } else if (meta.mimeType === "application/pdf") {
+      // PDF → download and send to Gemini
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const base64 = buffer.toString("base64");
+      content = await extractText(base64, "application/pdf");
+    } else {
+      // Other files → try to download and extract
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const base64 = buffer.toString("base64");
+      try {
+        content = await extractText(base64, meta.mimeType);
+      } catch {
+        content = `[Google Drive file: ${meta.name}] — Could not extract text from this file type (${meta.mimeType}).`;
+      }
+    }
+  
+    return {
+      content,
+      title: meta.name || "Untitled Drive Document",
+      mimeType: meta.mimeType,
+    };
+  }
+  ```
+  
+  ---
+  
+  ## 7. Change Tracking — Implementation
+  
+  ```typescript
+  // lib/changes.ts
+  import { db } from "@/lib/db";
+  import { entries } from "@/lib/db/schema";
+  import { eq } from "drizzle-orm";
+  import { createHash } from "crypto";
+  
+  export async function checkForChanges(
+    entryId: string,
+    newContent: string
+  ): Promise<boolean> {
+    const newHash = createHash("md5").update(newContent).digest("hex");
+  
+    const [existing] = await db.select({
+      contentHash: entries.contentHash,
+    }).from(entries).where(eq(entries.id, entryId));
+  
+    if (!existing || !existing.contentHash) return false;
+  
+    if (existing.contentHash !== newHash) {
+      // Content has changed!
+      await db.update(entries).set({
+        previousContentHash: existing.contentHash,
+        contentHash: newHash,
+        content: newContent,
+        hasChanges: true,
+        updatedAt: new Date(),
+      }).where(eq(entries.id, entryId));
+  
+      return true;
+    }
+  
+    return false;
+  }
+  
+  // Get all changed entries for a product
+  export async function getChangedEntries(productId: string) {
+    return db.select().from(entries)
+      .where(
+        eq(entries.productId, productId)
+      )
+      .then((results) => results.filter((e) => e.hasChanges === true));
+  }
+  
+  // Mark changes as seen
+  export async function clearChangeFlag(entryId: string) {
+    await db.update(entries).set({
+      hasChanges: false,
+    }).where(eq(entries.id, entryId));
+  }
+  ```
+  
+  ---
+  
+  ## 8. Deployment to Vercel
+  
+  ### 8.1 Prerequisites
+  
+  1. Push your code to GitHub
+  2. Create a Vercel account (free) at vercel.com
+  3. Connect your GitHub repo to Vercel
+  
+  ### 8.2 Vercel Configuration
+  
+  Create `vercel.json` in the project root:
+  
+  ```json
+  {
+    "buildCommand": "bun run build",
+    "installCommand": "bun install",
+    "framework": "nextjs"
+  }
+  ```
+  
+  If the project is in a monorepo structure from Better-T-Stack:
+  ```json
+  {
+    "buildCommand": "cd apps/web && bun run build",
+    "installCommand": "bun install",
+    "framework": "nextjs",
+    "rootDirectory": "apps/web"
+  }
+  ```
+  
+  ### 8.3 Environment Variables in Vercel
+  
+  In Vercel dashboard → Your Project → Settings → Environment Variables, add ALL variables from Section 2 of this document. Change:
+  
+  ```
+  BETTER_AUTH_URL=https://your-domain.vercel.app
+  NEXT_PUBLIC_APP_URL=https://your-domain.vercel.app
+  ```
+  
+  ### 8.4 Google OAuth — Update Redirect URI
+  
+  Add your production URL to Google OAuth authorized redirect URIs:
+  ```
+  https://your-domain.vercel.app/api/auth/callback/google
+  ```
+  
+  ### 8.5 Deploy
+  
+  ```bash
+  # Option 1: Auto-deploy (push to GitHub → Vercel deploys automatically)
+  git push origin main
+  
+  # Option 2: Manual deploy via Vercel CLI
+  bun add -g vercel
+  vercel --prod
+  ```
+  
+  ---
+  
+  ## 9. Updated Build Order (for Better-T-Stack project)
+  
+  This replaces the build order in Part 1. Follow this exactly.
+  
+  ### Phase 0: Understand the scaffolded project (30 minutes)
+  ```
+  Step 0.1: Explore the file structure — find where Drizzle, auth, and Next.js app live
+  Step 0.2: Run `bun run dev` and verify the scaffolded app works
+  Step 0.3: Identify the Drizzle config file, schema file, and DB client file
+  Step 0.4: Identify the Better Auth config file
+  ```
+  
+  ### Phase 1: Database + Auth (Day 1)
+  ```
+  Step 1.1: Set up Supabase project, enable pgvector extension
+  Step 1.2: Add the entries, products, chat_messages tables to the existing Drizzle schema (profiles may already exist from Better Auth)
+  Step 1.3: Run Drizzle migrations: `bun run db:push` or `bunx drizzle-kit push`
+  Step 1.4: Configure Google OAuth in Better Auth config (add Drive scope)
+  Step 1.5: Set up all environment variables
+  Step 1.6: Install additional packages: @supabase/supabase-js, @google/generative-ai
+  Step 1.7: Create lib/supabase/client.ts and lib/supabase/server.ts (storage only)
+  Step 1.8: Test: login with Google should work
+  ```
+  
+  ### Phase 2: AI Layer (Day 2)
+  ```
+  Step 2.1: Create lib/gemini/client.ts
+  Step 2.2: Create lib/gemini/extract.ts (text extraction)
+  Step 2.3: Create lib/gemini/embed.ts (embedding generation)
+  Step 2.4: Create lib/gemini/ask.ts (Q&A)
+  Step 2.5: Create lib/search.ts (semantic search via Supabase RPC)
+  Step 2.6: Create lib/drive/client.ts and lib/drive/token.ts
+  Step 2.7: Create the match_entries SQL function in Supabase
+  Step 2.8: Test: generate an embedding, verify it returns 768 numbers
+  ```
+  
+  ### Phase 3: API Routes (Day 3-4)
+  ```
+  Step 3.1: Products CRUD API (create, list, delete)
+  Step 3.2: Entries CRUD API (create for text/links, list with filters, delete)
+  Step 3.3: File upload API (upload + extract + embed + save)
+  Step 3.4: Google Drive read API
+  Step 3.5: Ask Budda API (search + context + Gemini Q&A)
+  Step 3.6: Change tracking helpers
+  Step 3.7: Test all APIs with curl or Postman
+  ```
+  
+  ### Phase 4: Frontend — Products (Day 5-6)
+  ```
+  Step 4.1: Products home page — grid of product cards
+  Step 4.2: Create product dialog
+  Step 4.3: Delete product with confirmation
+  Step 4.4: Product detail layout with tabs
+  Step 4.5: Entry list with expand/collapse
+  Step 4.6: Filter tabs (All, Documents, Design, Links, AI Chats, Changes)
+  Step 4.7: Search bar
+  Step 4.8: Source badges, type icons, context previews
+  ```
+  
+  ### Phase 5: Frontend — Feed Budda (Day 7-8)
+  ```
+  Step 5.1: Feed Budda page with 5 mode tabs
+  Step 5.2: Document upload mode (file picker + upload + processing indicator)
+  Step 5.3: Link mode (URL input + auto-detection)
+  Step 5.4: AI Chat mode (source selector + text area)
+  Step 5.5: Image upload mode (file picker + preview)
+  Step 5.6: Google Drive mode (URL input + auto-read)
+  Step 5.7: Context note field on all modes
+  Step 5.8: Processing states ("Budda is reading your document...")
+  ```
+  
+  ### Phase 6: Frontend — Ask Budda (Day 9-10)
+  ```
+  Step 6.1: Chat interface with message bubbles
+  Step 6.2: Suggested prompt buttons
+  Step 6.3: Send question → show loading → display answer
+  Step 6.4: Conversation history (persisted)
+  Step 6.5: Links in answers should be clickable
+  Step 6.6: "Open original" buttons on referenced entries
+  ```
+  
+  ### Phase 7: Change Tracking + Polish (Day 11-12)
+  ```
+  Step 7.1: "Documents updated" banner on product page
+  Step 7.2: Visual indicator on changed entries
+  Step 7.3: Landing page
+  Step 7.4: Loading skeletons and empty states
+  Step 7.5: Error handling on all API routes and UI
+  Step 7.6: Mobile responsive design
+  ```
+  
+  ### Phase 8: Deploy (Day 13)
+  ```
+  Step 8.1: Push to GitHub
+  Step 8.2: Connect to Vercel
+  Step 8.3: Add environment variables in Vercel
+  Step 8.4: Update Google OAuth redirect URI for production
+  Step 8.5: Deploy and test
+  Step 8.6: Custom domain (optional)
+  ```
+  
+  ---
+  
+  ## 10. Supabase Setup Checklist
+  
+  Do these steps manually in the Supabase dashboard before building:
+  
+  - [ ] Create new Supabase project
+  - [ ] Go to SQL Editor → run: `create extension if not exists vector with schema extensions;`
+  - [ ] Go to SQL Editor → run the `match_entries` function from Section 5.3
+  - [ ] Go to Storage → create bucket `documents` (private)
+  - [ ] Go to Storage → create bucket `images` (private)
+  - [ ] Go to Settings → Database → copy Connection String (URI) → use as DATABASE_URL
+  - [ ] Go to Settings → API → copy Project URL → use as SUPABASE_URL
+  - [ ] Go to Settings → API → copy anon key → use as SUPABASE_ANON_KEY
+  - [ ] Go to Settings → API → copy service_role key → use as SUPABASE_SERVICE_ROLE_KEY
+  
+  ---
+  
+  ## END OF SUPPLEMENTARY SPECIFICATION
+  
+  **Architecture summary — read this carefully:**
+  
+  | What | Tool | How |
+  |------|------|-----|
+  | Database (PostgreSQL) | **Supabase** | Hosts the database. Tables created via Drizzle migrations. |
+  | Database queries (CRUD) | **Drizzle ORM** | All reads/writes to products, entries, chat_messages go through Drizzle connecting to Supabase PostgreSQL via DATABASE_URL |
+  | File storage (PDFs, images) | **Supabase JS Client** | Uses Supabase Storage API for uploading/downloading files |
+  | Vector similarity search | **Supabase JS Client** | Calls the match_entries RPC function (pgvector) — Drizzle can't do this natively |
+  | Auth (login, sessions) | **Better Auth** | Google OAuth + email/password. NOT Supabase Auth. |
+  | AI (extraction, Q&A, embeddings) | **Google Gemini API** | Text extraction, Ask Budda Q&A, embedding generation |
+  | Google Drive reading | **Google Drive API v3** | Direct API calls using stored OAuth tokens |
+  
+  **How to use these two documents with Claude Code:**
+  
+  1. First, paste Part 1 (Budda_Technical_Spec.md) — this gives Claude Code the full picture
+  2. Then, paste Part 2 (THIS file) — this tells Claude Code "here are corrections and implementation details"
+  3. Tell Claude Code: "When Part 1 and Part 2 conflict, Part 2 wins. The project is already scaffolded with Better-T-Stack. Do NOT restructure. Adapt to the existing project."
+  4. Follow the build order in Section 9 of Part 2 (not Part 1)

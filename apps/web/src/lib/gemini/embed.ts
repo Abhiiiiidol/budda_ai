@@ -1,15 +1,19 @@
 import { EMBEDDING_DIMENSIONS, GEMINI_EMBEDDING_MODEL, getGemini } from "./client";
 
+const EMBEDDING_INPUT_CHAR_LIMIT = 32_000;
+
 export async function embedText(text: string): Promise<number[]> {
   const trimmed = text.trim();
   if (!trimmed) {
     throw new Error("Cannot embed empty text");
   }
+  const input = trimmed.slice(0, EMBEDDING_INPUT_CHAR_LIMIT);
 
   const ai = getGemini();
   const response = await ai.models.embedContent({
     model: GEMINI_EMBEDDING_MODEL,
-    contents: trimmed,
+    contents: input,
+    config: { outputDimensionality: EMBEDDING_DIMENSIONS },
   });
 
   const values = response.embeddings?.[0]?.values;

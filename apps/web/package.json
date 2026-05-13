@@ -13,6 +13,7 @@
     "@my-better-t-app/db": "workspace:*",
     "@my-better-t-app/env": "workspace:*",
     "@my-better-t-app/ui": "workspace:*",
+    "@supabase/supabase-js": "^2.105.4",
     "@tanstack/react-form": "^1.28.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "better-auth": "catalog:",

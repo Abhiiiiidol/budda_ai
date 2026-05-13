@@ -23,7 +23,20 @@
       "Bash(curl -s -X POST http://localhost:3001/api/entries -H \"Content-Type: application/json\" -d '{\"product_id\":\"00000000-0000-0000-0000-000000000000\",\"title\":\"t\"}' -w \"\\\\n-> %{http_code}\\\\n\" --max-time 20)",
       "Bash(curl -s -o /dev/null -w \"ping -> %{http_code}\\\\n\" --max-time 10 http://localhost:3001/)",
       "WebFetch(domain:supabase.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(curl -s -o /dev/null -w \"ping -> %{http_code}\\\\n\" --max-time 5 http://localhost:3001/)",
+      "Bash(node --experimental-strip-types -e ' *)",
+      "Bash(curl -s -o /dev/null -w \"/login -> %{http_code}\\\\n\" --max-time 15 http://localhost:3001/login)",
+      "Bash(curl -s -o /dev/null -w \"POST /api/drive/read \\(unauth\\) -> %{http_code}\\\\n\" --max-time 15 -X POST -H \"Content-Type: application/json\" -d '{\"fileUrl\":\"https://drive.google.com/file/d/abc/view\",\"productId\":\"00000000-0000-0000-0000-000000000000\"}' http://localhost:3001/api/drive/read)",
+      "Bash(curl -s -o /dev/null -w \"POST /api/ai/ask \\(unauth\\) -> %{http_code}\\\\n\" --max-time 15 -X POST -H \"Content-Type: application/json\" -d '{\"productId\":\"00000000-0000-0000-0000-000000000000\",\"question\":\"hi\"}' http://localhost:3001/api/ai/ask)",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(curl -s -o /dev/null -w \"/products \\(unauth\\) -> %{http_code}\\\\n\" --max-time 15 http://localhost:3001/products)",
+      "Bash(curl -s -o /dev/null -w \"/products/abc -> %{http_code}\\\\n\" --max-time 15 http://localhost:3001/products/abc)",
+      "Bash(curl -s -o /dev/null -w \"/products/abc/feed -> %{http_code}\\\\n\" --max-time 15 http://localhost:3001/products/abc/feed)",
+      "Bash(curl -s -o /dev/null -w \"/products/abc/ask -> %{http_code}\\\\n\" --max-time 15 http://localhost:3001/products/abc/ask)",
+      "Bash(curl -s -o /dev/null -w \"GET /api/auth/get-session -> %{http_code}\\\\n\" --max-time 10 http://localhost:3001/api/auth/get-session)"
     ]
   }
 }
