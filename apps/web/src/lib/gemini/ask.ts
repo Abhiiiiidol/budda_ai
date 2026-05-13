@@ -1,4 +1,4 @@
-import { GEMINI_MODEL, getGemini } from "./client";
+import { GEMINI_MODEL, callGemini, getGemini } from "./client";
 
 export type AskEntry = {
   title: string;
@@ -47,7 +47,7 @@ ${formatEntries(entries)}
 RULES — follow these strictly:
 1. Answer ONLY from the provided documents. Never fabricate information.
 2. If the answer is not in the documents, say: "I don't have that in my memory yet. Try feeding it to me!"
-3. Be concise and scannable — PMs are busy. Use short paragraphs.
+3. Be concise and scannable — PMs are busy. Use Markdown for structure: short paragraphs, bullet lists for enumerations, **bold** for emphasis, and \`inline code\` for technical terms or document titles.
 4. ALWAYS reference which document/entry you are pulling information from, by its title.
 5. ALWAYS include original links when they exist. If an entry has a Figma link, Drive link, YouTube link, or any URL — include it in your response so the PM can access the original file.
 6. When asked to "find a document" or "give me the doc about X" — search through entries, return the most relevant one with its full content and original link.
@@ -76,11 +76,13 @@ export async function askBudda(params: {
     { role: "user" as const, parts: [{ text: question }] },
   ];
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents,
-    config: { systemInstruction },
-  });
+  const response = await callGemini(() =>
+    ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents,
+      config: { systemInstruction },
+    }),
+  );
 
   const answer = response.text?.trim();
   if (!answer) {

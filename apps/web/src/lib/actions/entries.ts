@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { GeminiRateLimitError } from "@/lib/gemini/client";
 import { embedText } from "@/lib/gemini/embed";
 
 import { getSessionUserId } from "./session";
@@ -158,7 +159,11 @@ export async function createEntry(input: CreateEntryInput): Promise<
     try {
       embedding = await embedText(content);
     } catch (err) {
-      embeddingError = err instanceof Error ? err.message : "Embedding failed";
+      if (err instanceof GeminiRateLimitError) {
+        embeddingError = err.message;
+      } else {
+        embeddingError = err instanceof Error ? err.message : "Embedding failed";
+      }
     }
   }
 

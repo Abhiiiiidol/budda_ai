@@ -82,11 +82,18 @@ export default async function ProductDetailPage({
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" render={<Link href={`/products/${product.id}/ask`} />}>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/products/${product.id}/ask`} />}
+          >
             <MessageCircleIcon />
             Ask Budda
           </Button>
-          <Button render={<Link href={`/products/${product.id}/feed`} />}>
+          <Button
+            nativeButton={false}
+            render={<Link href={`/products/${product.id}/feed`} />}
+          >
             <PlusIcon />
             Feed Budda
           </Button>

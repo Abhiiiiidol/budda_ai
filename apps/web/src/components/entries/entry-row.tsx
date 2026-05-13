@@ -138,6 +138,7 @@ export default function EntryRow({ entry }: { entry: EntryRowData }) {
                 <Button
                   variant="outline"
                   size="sm"
+                  nativeButton={false}
                   render={
                     <a href={entry.link} target="_blank" rel="noopener noreferrer" />
                   }

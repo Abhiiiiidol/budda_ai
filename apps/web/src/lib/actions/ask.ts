@@ -5,6 +5,7 @@ import { chatMessages, entries, products } from "@my-better-t-app/db/schema/budd
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { GeminiRateLimitError } from "@/lib/gemini/client";
 import { askBudda, type AskEntry, type ChatTurn } from "@/lib/gemini/ask";
 import { semanticSearch, type SearchResult } from "@/lib/search";
 
@@ -111,6 +112,9 @@ export async function askProduct(
     });
   } catch (err) {
     console.error("Ask Budda Gemini call failed:", err);
+    if (err instanceof GeminiRateLimitError) {
+      return { ok: false, error: err.message };
+    }
     return { ok: false, error: "Budda's thinking got interrupted. Try again." };
   }
 

@@ -22,8 +22,11 @@
     "lucide-react": "catalog:",
     "next": "^16.2.0",
     "next-themes": "catalog:",
+    "officeparser": "^6.1.1",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "sonner": "catalog:",
     "zod": "catalog:"
   },

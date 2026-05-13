@@ -8,6 +8,8 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import FeedPanel from "@/components/feed/feed-panel";
+
 export const dynamic = "force-dynamic";
 
 export default async function FeedPage({
@@ -27,10 +29,11 @@ export default async function FeedPage({
   if (!product) notFound();
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-10">
+    <main className="mx-auto w-full max-w-3xl px-6 py-10">
       <Button
         variant="ghost"
         size="sm"
+        nativeButton={false}
         render={<Link href={`/products/${product.id}`} />}
       >
         <ArrowLeftIcon />
@@ -43,8 +46,8 @@ export default async function FeedPage({
         memory.
       </p>
 
-      <div className="mt-10 rounded-md border border-dashed bg-card/30 p-10 text-center text-sm text-muted-foreground">
-        Feed Budda UI comes in the next step.
+      <div className="mt-8">
+        <FeedPanel productId={product.id} />
       </div>
     </main>
   );
